@@ -1,0 +1,43 @@
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# ML model artifacts
+*.h5
+*.keras
+*.pkl
+*.joblib
+*.pt
+*.pth
+
+# Dataset files
+data/raw/*
+data/processed/*
+
+# Keep README files in data folders
+!data/raw/README.md
+!data/processed/README.md
+
+# OS files
+.DS_Store
+Thumbs.db
