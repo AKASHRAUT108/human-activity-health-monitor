@@ -1,26 +1,6 @@
-﻿# Numerical computing
-numpy>=1.26,<2.0
-pandas>=2.2,<4.0
-
-# Computer vision and pose estimation
-mediapipe>=0.10.20,<0.11
-
-# Machine learning
-tensorflow>=2.18,<3.0
-scikit-learn>=1.5,<2.0
-
-# Data visualization
-matplotlib>=3.9,<4.0
-
-# Backend
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
-
-# Frontend
 streamlit>=1.40,<2.0
-
+pandas>=2.2,<4.0
 plotly>=5.24,<7.0
-reportlab>=4.2,<5.0
 requests>=2.32,<3.0
-# Streamlit Arrow compatibility
+reportlab>=4.2,<5.0
 pyarrow==19.0.1

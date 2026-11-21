@@ -1,4 +1,4 @@
-﻿FROM python:3.12-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -16,10 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY backend-requirements.txt .
 
 RUN python -m pip install --upgrade pip && \
-    python -m pip install -r requirements.txt
+    python -m pip install -r backend-requirements.txt
 
 RUN apt-get update && apt-get install -y --no-install-recommends libgles2 libegl1 && rm -rf /var/lib/apt/lists/*
 
@@ -28,9 +28,3 @@ COPY . .
 EXPOSE 8000 8501
 
 CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-
-
-
-
-
