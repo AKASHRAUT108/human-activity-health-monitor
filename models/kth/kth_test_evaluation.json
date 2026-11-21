@@ -1,0 +1,165 @@
+{
+    "dataset": "KTH",
+    "model_type": "LSTM",
+    "sequence_length": 30,
+    "sequence_stride": 15,
+    "feature_dimension": 283,
+    "class_names": [
+        "boxing",
+        "handclapping",
+        "handwaving",
+        "jogging",
+        "running",
+        "walking"
+    ],
+    "class_mapping": {
+        "boxing": 0,
+        "handclapping": 1,
+        "handwaving": 2,
+        "jogging": 3,
+        "running": 4,
+        "walking": 5
+    },
+    "test_sequence_count": 4054,
+    "test_accuracy": 0.8485446472619635,
+    "classification_report": {
+        "boxing": {
+            "precision": 0.9018475750577367,
+            "recall": 0.9630086313193588,
+            "f1-score": 0.9314251639833036,
+            "support": 811.0
+        },
+        "handclapping": {
+            "precision": 0.9189842805320435,
+            "recall": 0.975609756097561,
+            "f1-score": 0.9464508094645081,
+            "support": 779.0
+        },
+        "handwaving": {
+            "precision": 0.967982924226254,
+            "recall": 0.9302564102564103,
+            "f1-score": 0.948744769874477,
+            "support": 975.0
+        },
+        "jogging": {
+            "precision": 0.5185758513931888,
+            "recall": 0.7665903890160183,
+            "f1-score": 0.61865189289012,
+            "support": 437.0
+        },
+        "running": {
+            "precision": 0.684931506849315,
+            "recall": 0.19157088122605365,
+            "f1-score": 0.2994011976047904,
+            "support": 261.0
+        },
+        "walking": {
+            "precision": 0.8609929078014185,
+            "recall": 0.7673830594184576,
+            "f1-score": 0.8114973262032086,
+            "support": 791.0
+        },
+        "accuracy": 0.8485446472619635,
+        "macro avg": {
+            "precision": 0.8088858409766595,
+            "recall": 0.7657365212223098,
+            "f1-score": 0.7593618600034012,
+            "support": 4054.0
+        },
+        "weighted avg": {
+            "precision": 0.8577949307953382,
+            "recall": 0.8485446472619635,
+            "f1-score": 0.8406724504157613,
+            "support": 4054.0
+        }
+    },
+    "confusion_matrix": [
+        [
+            781,
+            1,
+            12,
+            6,
+            2,
+            9
+        ],
+        [
+            3,
+            760,
+            14,
+            0,
+            0,
+            2
+        ],
+        [
+            1,
+            61,
+            907,
+            0,
+            0,
+            6
+        ],
+        [
+            44,
+            4,
+            0,
+            335,
+            13,
+            41
+        ],
+        [
+            17,
+            0,
+            1,
+            153,
+            50,
+            40
+        ],
+        [
+            20,
+            1,
+            3,
+            152,
+            8,
+            607
+        ]
+    ],
+    "confusion_matrix_labels": [
+        "boxing",
+        "handclapping",
+        "handwaving",
+        "jogging",
+        "running",
+        "walking"
+    ],
+    "training_subjects": [
+        "person11",
+        "person12",
+        "person13",
+        "person14",
+        "person15",
+        "person16",
+        "person17",
+        "person18"
+    ],
+    "validation_subjects": [
+        "person01",
+        "person04",
+        "person19",
+        "person20",
+        "person21",
+        "person23",
+        "person24",
+        "person25"
+    ],
+    "test_subjects": [
+        "person02",
+        "person03",
+        "person05",
+        "person06",
+        "person07",
+        "person08",
+        "person09",
+        "person10",
+        "person22"
+    ]
+}

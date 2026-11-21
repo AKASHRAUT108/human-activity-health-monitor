@@ -121,7 +121,7 @@ class TestSequenceBuilder(unittest.TestCase):
             features=np.ones((4, 283), dtype=np.float32),
             label="walking",
             sample_id="video01",
-            split="validation",
+            split="holdout",
         )
 
         with self.assertRaises(ValueError):

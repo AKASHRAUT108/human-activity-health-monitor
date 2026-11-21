@@ -44,3 +44,9 @@ Thumbs.db
 
 #MediaPipe and other downloaded model files 
 *.task
+# Deployment model files
+!models/kth_tuned_conf03/activity_lstm.keras
+!models/pose_landmarker_lite.task
+
+# Temporary backup files
+*.bak

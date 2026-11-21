@@ -1,4 +1,3 @@
-
 """Build fixed-length activity sequences from pose feature recordings."""
 
 from __future__ import annotations
@@ -7,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import numpy as np
+
 
 @dataclass
 class FeatureRecording:
@@ -18,6 +18,7 @@ class FeatureRecording:
     subject_id: Optional[str] = None
     site_id: Optional[str] = None
     split: Optional[str] = None
+
 
 @dataclass
 class SequenceDataset:
@@ -33,25 +34,34 @@ class SequenceDataset:
     def __len__(self) -> int:
         return len(self.X)
 
+    @staticmethod
+    def _normalize_split(split_name: str) -> str:
+        """Normalize supported validation split aliases."""
+        normalized = str(split_name).strip().lower()
+        return "validation" if normalized == "val" else normalized
+
     def select_split(self, split_name: str) -> tuple[np.ndarray, np.ndarray]:
         """Select sequences belonging to a named dataset split."""
+        normalized = self._normalize_split(split_name)
+
         indices = [
             index
             for index, split in enumerate(self.splits)
-            if split == split_name
+            if split == normalized
         ]
 
         if not indices:
             raise ValueError(
-                f"No sequences found for split {split_name!r}."
+                f"No sequences found for split {normalized!r}."
             )
 
         return self.X[indices], self.labels[indices]
 
+
 class SequenceBuilder:
     """Convert per-video frame features into fixed-length sequences."""
 
-    VALID_SPLITS = {"train", "val", "test"}
+    VALID_SPLITS = {"train", "validation", "test"}
 
     def __init__(
         self,
@@ -113,17 +123,17 @@ class SequenceBuilder:
                 raise ValueError("sample_id cannot be empty.")
 
             label = recording.label.strip().lower()
-
             if not label:
                 raise ValueError("Activity label cannot be empty.")
 
             split = recording.split
-
-            if split is not None and split not in self.VALID_SPLITS:
-                raise ValueError(
-                    f"Invalid split {split!r}. "
-                    f"Expected one of {sorted(self.VALID_SPLITS)}."
-                )
+            if split is not None:
+                split = SequenceDataset._normalize_split(split)
+                if split not in self.VALID_SPLITS:
+                    raise ValueError(
+                        f"Invalid split {recording.split!r}. "
+                        f"Expected one of {sorted(self.VALID_SPLITS)}."
+                    )
 
             if len(features) < self.sequence_length:
                 continue
