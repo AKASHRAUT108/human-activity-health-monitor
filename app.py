@@ -1,8 +1,8 @@
 ﻿from __future__ import annotations
 
 import io
-import os
 import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -10,8 +10,9 @@ from typing import Any
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
 import streamlit as st
+
+from api.inference_service import VideoInferenceService
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -24,7 +25,6 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
-    PageBreak,
 )
 
 # ---------------------------------------------------------
@@ -32,7 +32,10 @@ from reportlab.platypus import (
 # ---------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent
-EVALUATION_PATH = ROOT / "models" / "kth_tuned_conf03" / "kth_test_evaluation.json"
+MODEL_DIR = ROOT / "models" / "kth_tuned_conf03"
+POSE_MODEL_PATH = ROOT / "models" / "pose_landmarker_lite.task"
+EVALUATION_PATH = MODEL_DIR / "kth_test_evaluation.json"
+
 
 st.set_page_config(
     page_title="Activity Monitor | Human Activity Health Monitor",
@@ -41,8 +44,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+@st.cache_resource(show_spinner="Loading activity recognition model...")
+def get_inference_service() -> VideoInferenceService:
+    """Load the pose estimator and trained LSTM once per Streamlit session."""
+    return VideoInferenceService(
+        model_dir=MODEL_DIR,
+        pose_model_path=POSE_MODEL_PATH,
+        frame_stride=1,
+        sequence_stride=15,
+    )
+
+
 # ---------------------------------------------------------
-# PROFESSIONAL DASHBOARD STYLING
+# DASHBOARD STYLING
 # ---------------------------------------------------------
 
 st.markdown(
@@ -53,27 +68,22 @@ st.markdown(
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
     }
-
     .stApp {
         background: #0b1120;
         color: #e5edf7;
     }
-
     [data-testid="stSidebar"] {
         background: #101a2d;
         border-right: 1px solid #24334b;
     }
-
     [data-testid="stSidebar"] * {
         color: #dce7f5;
     }
-
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
         max-width: 1500px;
     }
-
     .main-title {
         font-size: 2rem;
         font-weight: 800;
@@ -81,13 +91,11 @@ st.markdown(
         letter-spacing: -1px;
         margin-bottom: 3px;
     }
-
     .subtitle {
         color: #94a3b8;
         font-size: 0.92rem;
         margin-bottom: 25px;
     }
-
     .metric-card {
         background: linear-gradient(145deg, #17243a, #111c30);
         border: 1px solid #263954;
@@ -95,7 +103,6 @@ st.markdown(
         padding: 20px 21px;
         min-height: 122px;
     }
-
     .metric-label {
         color: #94a3b8;
         font-size: 0.78rem;
@@ -103,20 +110,17 @@ st.markdown(
         text-transform: uppercase;
         letter-spacing: 0.8px;
     }
-
     .metric-value {
         color: #f8fafc;
         font-size: 1.85rem;
         font-weight: 800;
         margin-top: 9px;
     }
-
     .metric-caption {
         color: #7dd3c7;
         font-size: 0.78rem;
         margin-top: 4px;
     }
-
     .section-heading {
         color: #e2e8f0;
         font-size: 1.12rem;
@@ -124,7 +128,6 @@ st.markdown(
         margin-top: 12px;
         margin-bottom: 12px;
     }
-
     .info-panel {
         background: #111c30;
         border: 1px solid #263954;
@@ -132,31 +135,17 @@ st.markdown(
         padding: 18px;
         margin-bottom: 12px;
     }
-
-    .status-online {
-        color: #5eead4;
-        font-weight: 700;
-    }
-
-    .status-offline {
-        color: #fca5a5;
-        font-weight: 700;
-    }
-
     .small-muted {
         color: #94a3b8;
         font-size: 0.82rem;
     }
-
     div[data-testid="stFileUploader"] {
         background: #111c30;
         border: 1px dashed #3b587a;
         border-radius: 12px;
         padding: 12px;
     }
-
-    .stButton > button,
-    .stDownloadButton > button {
+    .stButton > button, .stDownloadButton > button {
         background: linear-gradient(90deg, #0d9488, #0f766e);
         color: white;
         border: 0;
@@ -164,24 +153,19 @@ st.markdown(
         font-weight: 700;
         min-height: 42px;
     }
-
-    .stButton > button:hover,
-    .stDownloadButton > button:hover {
+    .stButton > button:hover, .stDownloadButton > button:hover {
         background: #14b8a6;
         color: white;
         border: 0;
     }
-
     div[data-testid="stDataFrame"] {
         border: 1px solid #263954;
         border-radius: 10px;
         overflow: hidden;
     }
-
     h1, h2, h3 {
         color: #f1f5f9;
     }
-
     hr {
         border-color: #263954;
     }
@@ -190,17 +174,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ---------------------------------------------------------
-# DATA LOADING
+# DATA LOADING AND HELPERS
 # ---------------------------------------------------------
 
 @st.cache_data
 def load_evaluation() -> dict[str, Any]:
     if not EVALUATION_PATH.exists():
-        raise FileNotFoundError(
-            f"Evaluation file not found: {EVALUATION_PATH}"
-        )
-
+        raise FileNotFoundError(f"Evaluation file not found: {EVALUATION_PATH}")
     with EVALUATION_PATH.open("r", encoding="utf-8") as file:
         return json.load(file)
 
@@ -218,12 +200,6 @@ def metric_card(label: str, value: str, caption: str = "") -> None:
     )
 
 
-def get_api_url() -> str:
-    return st.session_state.get(
-        "api_url", os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
-    ).rstrip("/")
-
-
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -239,6 +215,15 @@ def get_prediction_windows(result: dict) -> list:
     return []
 
 
+def get_activity_counts(result: dict) -> dict:
+    """Support both the dashboard name and VideoInferenceService output name."""
+    for key in ("activity_counts", "activity_window_counts"):
+        value = result.get(key)
+        if isinstance(value, dict) and value:
+            return value
+    return {}
+
+
 def get_dominant_activity(result: dict) -> str:
     for key in (
         "dominant_activity",
@@ -250,8 +235,8 @@ def get_dominant_activity(result: dict) -> str:
         if isinstance(value, str) and value.strip():
             return value
 
-    counts = result.get("activity_counts")
-    if isinstance(counts, dict) and counts:
+    counts = get_activity_counts(result)
+    if counts:
         return max(counts, key=counts.get)
 
     windows = get_prediction_windows(result)
@@ -274,8 +259,39 @@ def get_confidence(result: dict) -> float | None:
             number = safe_float(value, -1)
             if number >= 0:
                 return number * 100 if number <= 1 else number
-
     return None
+
+
+def analyze_uploaded_video(uploaded_file) -> dict:
+    """Save Streamlit's uploaded file temporarily and run local inference."""
+    suffix = Path(uploaded_file.name).suffix or ".mp4"
+    temp_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            suffix=suffix,
+            delete=False,
+        ) as temp_file:
+            temp_file.write(uploaded_file.getbuffer())
+            temp_path = Path(temp_file.name)
+
+        service = get_inference_service()
+        result = service.predict_video(temp_path)
+
+        if not isinstance(result, dict):
+            raise TypeError("The inference service returned an unexpected result.")
+
+        # The inference service calls this activity_window_counts.
+        # Keep an alias for the dashboard and PDF report.
+        if "activity_counts" not in result:
+            result["activity_counts"] = result.get("activity_window_counts", {})
+
+        return result
+
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------
@@ -287,7 +303,6 @@ def create_pdf_report(
     prediction: dict | None = None,
 ) -> bytes:
     buffer = io.BytesIO()
-
     document = SimpleDocTemplate(
         buffer,
         pagesize=A4,
@@ -298,7 +313,6 @@ def create_pdf_report(
     )
 
     styles = getSampleStyleSheet()
-
     styles.add(
         ParagraphStyle(
             name="ReportTitleCustom",
@@ -310,7 +324,6 @@ def create_pdf_report(
             spaceAfter=8,
         )
     )
-
     styles.add(
         ParagraphStyle(
             name="SectionCustom",
@@ -322,24 +335,16 @@ def create_pdf_report(
         )
     )
 
-    story = []
-
-    story.append(Paragraph("HUMAN ACTIVITY MONITOR", styles["ReportTitleCustom"]))
-    story.append(
-        Paragraph(
-            "Model Evaluation and Activity Analysis Report",
-            styles["Normal"],
-        )
-    )
-    story.append(Spacer(1, 8))
-    story.append(
+    story = [
+        Paragraph("HUMAN ACTIVITY MONITOR", styles["ReportTitleCustom"]),
+        Paragraph("Model Evaluation and Activity Analysis Report", styles["Normal"]),
+        Spacer(1, 8),
         Paragraph(
             f"Generated: {datetime.now().strftime('%d %B %Y, %H:%M:%S')}",
             styles["Normal"],
-        )
-    )
-
-    story.append(Paragraph("1. Model Overview", styles["SectionCustom"]))
+        ),
+        Paragraph("1. Model Overview", styles["SectionCustom"]),
+    ]
 
     accuracy = safe_float(evaluation.get("test_accuracy"))
     model_data = [
@@ -367,12 +372,12 @@ def create_pdf_report(
         )
     )
     story.append(table)
-
-    story.append(Paragraph("2. Per-Class Model Performance", styles["SectionCustom"]))
+    story.append(
+        Paragraph("2. Per-Class Model Performance", styles["SectionCustom"])
+    )
 
     report = evaluation.get("classification_report", {})
     class_names = evaluation.get("class_names", [])
-
     class_data = [["Activity", "Precision", "Recall", "F1-score", "Support"]]
 
     for name in class_names:
@@ -407,10 +412,8 @@ def create_pdf_report(
 
     if prediction:
         story.append(Paragraph("3. Video Analysis", styles["SectionCustom"]))
-
         dominant = get_dominant_activity(prediction)
         confidence = get_confidence(prediction)
-
         prediction_data = [
             ["Field", "Result"],
             ["Dominant activity", dominant],
@@ -418,7 +421,7 @@ def create_pdf_report(
                 "Prediction confidence",
                 f"{confidence:.2f}%" if confidence is not None else "Not provided",
             ],
-            ["Video information", str(prediction.get("video_info", "See API result"))],
+            ["Video information", str(prediction.get("video_info", "Not provided"))],
             ["Prediction windows", str(len(get_prediction_windows(prediction)))],
         ]
 
@@ -438,7 +441,6 @@ def create_pdf_report(
             )
         )
         story.append(prediction_table)
-
         story.append(Spacer(1, 8))
         story.append(
             Paragraph(
@@ -449,14 +451,16 @@ def create_pdf_report(
             )
         )
 
-    story.append(Spacer(1, 18))
-    story.append(
-        Paragraph(
-            "This report describes model performance on the KTH test dataset. "
-            "Test accuracy does not guarantee the same performance on arbitrary "
-            "real-world videos.",
-            styles["Italic"],
-        )
+    story.extend(
+        [
+            Spacer(1, 18),
+            Paragraph(
+                "This report describes model performance on the KTH test dataset. "
+                "Test accuracy does not guarantee the same performance on arbitrary "
+                "real-world videos.",
+                styles["Italic"],
+            ),
+        ]
     )
 
     document.build(story)
@@ -473,8 +477,8 @@ if "prediction_result" not in st.session_state:
 if "uploaded_filename" not in st.session_state:
     st.session_state.uploaded_filename = None
 
-if "api_url" not in st.session_state:
-    st.session_state.api_url = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+if "generated_pdf" not in st.session_state:
+    st.session_state.generated_pdf = None
 
 
 # ---------------------------------------------------------
@@ -498,25 +502,9 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown("**Backend connection**")
-
-    st.session_state.api_url = st.text_input(
-        "FastAPI URL",
-        value=st.session_state.api_url,
-        help="Address of your running FastAPI service.",
-    )
-
-    if st.button("Check API connection", use_container_width=True):
-        try:
-            response = requests.get(
-                f"{get_api_url()}/health",
-                timeout=5,
-            )
-            response.raise_for_status()
-            st.success("API is reachable.")
-            st.json(response.json())
-        except requests.RequestException as exc:
-            st.error(f"API connection failed: {exc}")
+    st.markdown("**Inference engine**")
+    st.success("Local Streamlit inference enabled")
+    st.caption("Powered by MediaPipe Pose and the tuned LSTM model.")
 
     st.divider()
     st.markdown(
@@ -553,40 +541,29 @@ class_names = evaluation.get("class_names", [])
 classification_report = evaluation.get("classification_report", {})
 confusion_matrix = evaluation.get("confusion_matrix", [])
 
+
 # ---------------------------------------------------------
 # PAGE: OVERVIEW
 # ---------------------------------------------------------
 
 if page == "Overview":
-
-    st.markdown(
-        '<div class="main-title">Activity Monitor</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="main-title">Activity Monitor</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="subtitle">Human activity recognition and model monitoring dashboard</div>',
         unsafe_allow_html=True,
     )
 
     col1, col2, col3, col4 = st.columns(4)
-
     with col1:
         metric_card("Test accuracy", f"{accuracy * 100:.2f}%", "KTH test dataset")
-
     with col2:
         metric_card(
             "Test sequences",
             f"{int(evaluation.get('test_sequence_count', 0)):,}",
             "Evaluated samples",
         )
-
     with col3:
-        metric_card(
-            "Activity classes",
-            str(len(class_names)),
-            "Supported categories",
-        )
-
+        metric_card("Activity classes", str(len(class_names)), "Supported categories")
     with col4:
         metric_card(
             "Model architecture",
@@ -595,12 +572,13 @@ if page == "Overview":
         )
 
     st.markdown("---")
-
     left, right = st.columns([1.2, 1])
 
     with left:
-        st.markdown('<div class="section-heading">Per-class F1 performance</div>', unsafe_allow_html=True)
-
+        st.markdown(
+            '<div class="section-heading">Per-class F1 performance</div>',
+            unsafe_allow_html=True,
+        )
         rows = []
         for name in class_names:
             item = classification_report.get(name, {})
@@ -612,15 +590,13 @@ if page == "Overview":
                     "Recall": safe_float(item.get("recall")),
                 }
             )
-
         performance_df = pd.DataFrame(rows)
-
         fig = px.bar(
             performance_df,
             x="Activity",
             y="F1-score",
             range_y=[0, 1],
-            text=performance_df["F1-score"].map(lambda x: f"{x:.2f}"),
+            text=performance_df["F1-score"].map(lambda value: f"{value:.2f}"),
             color="F1-score",
             color_continuous_scale=["#334155", "#0d9488", "#5eead4"],
         )
@@ -637,22 +613,29 @@ if page == "Overview":
         st.plotly_chart(fig, use_container_width=True)
 
     with right:
-        st.markdown('<div class="section-heading">Model summary</div>', unsafe_allow_html=True)
-
+        st.markdown(
+            '<div class="section-heading">Model summary</div>',
+            unsafe_allow_html=True,
+        )
         macro_f1 = safe_float(
             classification_report.get("macro avg", {}).get("f1-score")
         )
         weighted_f1 = safe_float(
             classification_report.get("weighted avg", {}).get("f1-score")
         )
-
         metric_card("Macro F1-score", f"{macro_f1 * 100:.2f}%", "Average across classes")
         st.write("")
-        metric_card("Weighted F1-score", f"{weighted_f1 * 100:.2f}%", "Support-weighted performance")
+        metric_card(
+            "Weighted F1-score",
+            f"{weighted_f1 * 100:.2f}%",
+            "Support-weighted performance",
+        )
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Supported activities</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Supported activities</div>',
+        unsafe_allow_html=True,
+    )
     activity_columns = st.columns(3)
     for index, name in enumerate(class_names):
         with activity_columns[index % 3]:
@@ -677,18 +660,13 @@ if page == "Overview":
 # ---------------------------------------------------------
 
 elif page == "Video Analysis":
-
+    st.markdown('<div class="main-title">Video Analysis</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="main-title">Video Analysis</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="subtitle">Upload a video and run activity recognition through the FastAPI inference service.</div>',
+        '<div class="subtitle">Upload a video and run activity recognition directly in this dashboard.</div>',
         unsafe_allow_html=True,
     )
 
     st.markdown('<div class="section-heading">Upload video</div>', unsafe_allow_html=True)
-
     uploaded_file = st.file_uploader(
         "Choose a video file",
         type=["mp4", "avi", "mov", "mkv"],
@@ -701,64 +679,46 @@ elif page == "Video Analysis":
             f"({uploaded_file.size / (1024 * 1024):.2f} MB)"
         )
 
-        if uploaded_file.size > 200 * 1024 * 1024:
-            st.error("File exceeds the 200 MB API upload limit.")
+        # Keep uploads modest because Streamlit Cloud has limited memory/CPU.
+        if uploaded_file.size > 100 * 1024 * 1024:
+            st.error("File is larger than the 100 MB dashboard limit. Please use a shorter or smaller video.")
         elif st.button("Analyze video", type="primary", use_container_width=True):
-            with st.spinner("Processing video and generating predictions..."):
+            with st.spinner(
+                "Loading the model if needed, processing video frames, and generating predictions..."
+            ):
                 try:
-                    response = requests.post(
-                        f"{get_api_url()}/predict",
-                        files={
-                            "file": (
-                                uploaded_file.name,
-                                uploaded_file.getvalue(),
-                                uploaded_file.type or "application/octet-stream",
-                            )
-                        },
-                        timeout=600,
-                    )
-
-                    if not response.ok:
-                        try:
-                            detail = response.json()
-                        except ValueError:
-                            detail = response.text
-
-                        st.error(f"API returned HTTP {response.status_code}: {detail}")
-                    else:
-                        result = response.json()
-                        st.session_state.prediction_result = result
-                        st.session_state.uploaded_filename = uploaded_file.name
-                        st.success("Video analysis completed successfully.")
-
-                except requests.Timeout:
-                    st.error("The video analysis timed out. Try a shorter video.")
-                except requests.RequestException as exc:
-                    st.error(f"Unable to reach the inference API: {exc}")
-                except ValueError:
-                    st.error("The API returned an invalid JSON response.")
+                    result = analyze_uploaded_video(uploaded_file)
+                    st.session_state.prediction_result = result
+                    st.session_state.uploaded_filename = uploaded_file.name
+                    st.success("Video analysis completed successfully.")
+                except Exception as exc:
+                    st.error(f"Video analysis failed: {exc}")
 
     result = st.session_state.prediction_result
 
     if result:
         st.markdown("---")
-        st.markdown('<div class="section-heading">Analysis result</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-heading">Analysis result</div>',
+            unsafe_allow_html=True,
+        )
 
         dominant = get_dominant_activity(result)
         confidence = get_confidence(result)
-
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            metric_card("Dominant activity", dominant.replace("_", " ").title(), "Most frequently predicted category")
-
+            metric_card(
+                "Dominant activity",
+                dominant.replace("_", " ").title(),
+                "Most frequently predicted category",
+            )
         with col2:
             metric_card(
                 "Prediction confidence",
                 f"{confidence:.2f}%" if confidence is not None else "N/A",
                 "Model output confidence, when provided",
             )
-
         with col3:
             metric_card(
                 "Prediction windows",
@@ -766,8 +726,10 @@ elif page == "Video Analysis":
                 "Analyzed sequence windows",
             )
 
-        st.markdown('<div class="section-heading">Video details</div>', unsafe_allow_html=True)
-
+        st.markdown(
+            '<div class="section-heading">Video details</div>',
+            unsafe_allow_html=True,
+        )
         st.write(f"**File:** {st.session_state.uploaded_filename or 'Uploaded video'}")
 
         video_info = result.get("video_info", {})
@@ -777,31 +739,34 @@ elif page == "Video Analysis":
             st.write(video_info)
 
         windows = get_prediction_windows(result)
-
         if windows:
-            st.markdown('<div class="section-heading">Window-level predictions</div>', unsafe_allow_html=True)
-
+            st.markdown(
+                '<div class="section-heading">Window-level predictions</div>',
+                unsafe_allow_html=True,
+            )
             normalized = []
             for index, item in enumerate(windows):
                 if not isinstance(item, dict):
                     continue
-
                 activity = (
                     item.get("activity")
                     or item.get("predicted_activity")
                     or item.get("label")
                     or "Unknown"
                 )
-
                 row = {
                     "Window": item.get("window_index", index + 1),
                     "Activity": str(activity).replace("_", " ").title(),
                 }
-
-                for key in ("confidence", "start_frame", "end_frame", "start_time", "end_time"):
+                for key in (
+                    "confidence",
+                    "start_frame",
+                    "end_frame",
+                    "start_time",
+                    "end_time",
+                ):
                     if key in item:
                         row[key.replace("_", " ").title()] = item[key]
-
                 normalized.append(row)
 
             if normalized:
@@ -811,7 +776,6 @@ elif page == "Video Analysis":
                     hide_index=True,
                 )
 
-            # Plot window predictions as a timeline.
             activity_values = [
                 (
                     item.get("activity")
@@ -822,15 +786,16 @@ elif page == "Video Analysis":
                 for item in windows
                 if isinstance(item, dict)
             ]
-
             if activity_values:
                 timeline = pd.DataFrame(
                     {
                         "Window": list(range(1, len(activity_values) + 1)),
-                        "Activity": [str(x).replace("_", " ").title() for x in activity_values],
+                        "Activity": [
+                            str(value).replace("_", " ").title()
+                            for value in activity_values
+                        ],
                     }
                 )
-
                 fig = px.scatter(
                     timeline,
                     x="Window",
@@ -846,17 +811,18 @@ elif page == "Video Analysis":
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-        counts = result.get("activity_counts")
-        if isinstance(counts, dict) and counts:
-            st.markdown('<div class="section-heading">Activity distribution</div>', unsafe_allow_html=True)
-
+        counts = get_activity_counts(result)
+        if counts:
+            st.markdown(
+                '<div class="section-heading">Activity distribution</div>',
+                unsafe_allow_html=True,
+            )
             count_df = pd.DataFrame(
                 {
                     "Activity": list(counts.keys()),
                     "Windows": list(counts.values()),
                 }
             )
-
             fig = px.pie(
                 count_df,
                 names="Activity",
@@ -874,8 +840,7 @@ elif page == "Video Analysis":
             "Predictions are estimates from the trained machine-learning model. "
             "They are not medical diagnoses or validated health alerts."
         )
-
-        with st.expander("View complete API response"):
+        with st.expander("View complete inference result"):
             st.json(result)
 
     else:
@@ -887,7 +852,6 @@ elif page == "Video Analysis":
 # ---------------------------------------------------------
 
 elif page == "Model Performance":
-
     st.markdown(
         '<div class="main-title">Model Performance</div>',
         unsafe_allow_html=True,
@@ -898,17 +862,14 @@ elif page == "Model Performance":
     )
 
     col1, col2, col3 = st.columns(3)
-
     with col1:
         metric_card("Test accuracy", f"{accuracy * 100:.2f}%", "Overall test accuracy")
-
     with col2:
         metric_card(
             "Test samples",
             f"{int(evaluation.get('test_sequence_count', 0)):,}",
             "Sequence-level test samples",
         )
-
     with col3:
         metric_card(
             "Feature dimension",
@@ -917,8 +878,10 @@ elif page == "Model Performance":
         )
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Classification report</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Classification report</div>',
+        unsafe_allow_html=True,
+    )
     rows = []
     for name in class_names:
         item = classification_report.get(name, {})
@@ -931,9 +894,7 @@ elif page == "Model Performance":
                 "Support": int(safe_float(item.get("support"))),
             }
         )
-
     report_df = pd.DataFrame(rows)
-
     st.dataframe(
         report_df.style.format(
             {
@@ -947,7 +908,6 @@ elif page == "Model Performance":
     )
 
     fig = go.Figure()
-
     for metric in ("Precision", "Recall", "F1-score"):
         fig.add_trace(
             go.Bar(
@@ -956,7 +916,6 @@ elif page == "Model Performance":
                 y=report_df[metric],
             )
         )
-
     fig.update_layout(
         barmode="group",
         title="Precision, recall and F1-score by activity",
@@ -970,11 +929,12 @@ elif page == "Model Performance":
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Confusion matrix</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Confusion matrix</div>',
+        unsafe_allow_html=True,
+    )
     if confusion_matrix:
         labels = evaluation.get("confusion_matrix_labels", class_names)
-
         matrix_fig = px.imshow(
             confusion_matrix,
             x=labels,
@@ -988,7 +948,6 @@ elif page == "Model Performance":
                 "color": "Sequences",
             },
         )
-
         matrix_fig.update_layout(
             title="KTH test-set confusion matrix",
             template="plotly_dark",
@@ -996,15 +955,15 @@ elif page == "Model Performance":
             plot_bgcolor="#111c30",
             font_color="#dce7f5",
         )
-
         st.plotly_chart(matrix_fig, use_container_width=True)
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Evaluation observations</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Evaluation observations</div>',
+        unsafe_allow_html=True,
+    )
     running = classification_report.get("running", {})
     running_recall = safe_float(running.get("recall"))
-
     if running:
         st.warning(
             f"Running activity recall is {running_recall * 100:.2f}%. "
@@ -1018,10 +977,8 @@ elif page == "Model Performance":
     weighted_f1 = safe_float(
         classification_report.get("weighted avg", {}).get("f1-score")
     )
-
     st.write(f"**Macro average F1-score:** {macro_f1:.4f}")
     st.write(f"**Weighted average F1-score:** {weighted_f1:.4f}")
-
     st.caption(
         "These results represent the saved evaluation of the selected KTH model. "
         "They should not be interpreted as clinical or medical validation."
@@ -1033,7 +990,6 @@ elif page == "Model Performance":
 # ---------------------------------------------------------
 
 elif page == "Reports & About":
-
     st.markdown(
         '<div class="main-title">Reports & About</div>',
         unsafe_allow_html=True,
@@ -1043,8 +999,10 @@ elif page == "Reports & About":
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="section-heading">PDF report generation</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">PDF report generation</div>',
+        unsafe_allow_html=True,
+    )
     st.write(
         "Generate a PDF report containing the saved model evaluation metrics "
         "and, when available, the latest video analysis result."
@@ -1058,16 +1016,19 @@ elif page == "Reports & About":
 
     if st.button("Generate PDF report", use_container_width=True):
         try:
-            pdf_bytes = create_pdf_report(
+            st.session_state.generated_pdf = create_pdf_report(
                 evaluation,
-                st.session_state.prediction_result if include_prediction else None,
+                (
+                    st.session_state.prediction_result
+                    if include_prediction
+                    else None
+                ),
             )
-            st.session_state.generated_pdf = pdf_bytes
             st.success("PDF report generated.")
         except Exception as exc:
             st.error(f"PDF generation failed: {exc}")
 
-    if st.session_state.get("generated_pdf"):
+    if st.session_state.generated_pdf:
         st.download_button(
             "Download PDF report",
             data=st.session_state.generated_pdf,
@@ -1077,8 +1038,10 @@ elif page == "Reports & About":
         )
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Project information</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Project information</div>',
+        unsafe_allow_html=True,
+    )
     info_col1, info_col2 = st.columns(2)
 
     with info_col1:
@@ -1104,8 +1067,8 @@ elif page == "Reports & About":
                 Long Short-Term Memory (LSTM)<br><br>
                 <b>Dataset</b><br>
                 KTH Human Action Dataset<br><br>
-                <b>Backend</b><br>
-                FastAPI inference service<br><br>
+                <b>Inference</b><br>
+                Streamlit-hosted inference service<br><br>
                 <b>Dashboard</b><br>
                 Streamlit and Plotly
             </div>
@@ -1114,8 +1077,10 @@ elif page == "Reports & About":
         )
 
     st.markdown("---")
-    st.markdown('<div class="section-heading">Model configuration</div>', unsafe_allow_html=True)
-
+    st.markdown(
+        '<div class="section-heading">Model configuration</div>',
+        unsafe_allow_html=True,
+    )
     config_data = {
         "Dataset": evaluation.get("dataset"),
         "Model type": evaluation.get("model_type"),
@@ -1126,7 +1091,6 @@ elif page == "Reports & About":
         "Test accuracy": f"{accuracy * 100:.2f}%",
         "Class names": ", ".join(class_names),
     }
-
     st.json(config_data)
 
     st.caption(
@@ -1134,4 +1098,3 @@ elif page == "Reports & About":
         "It is not a medical device and must not be used for diagnosis, "
         "emergency response, or treatment decisions."
     )
-
